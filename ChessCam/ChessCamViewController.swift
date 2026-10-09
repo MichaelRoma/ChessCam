@@ -1,4 +1,5 @@
 import UIKit
+import ReplayKit
 
 final class ChessCamViewController: UIViewController {
     private let green = UIColor(red: 0.29, green: 0.49, blue: 0.30, alpha: 1)
@@ -7,16 +8,19 @@ final class ChessCamViewController: UIViewController {
     private lazy var cameraController = CameraViewController(mirrored: settings.mirrorCamera)
     private var webHeightConstraint: NSLayoutConstraint!
     private var fileStore: RecordingFileStore?
-    private var recordingService: ScreenRecordingService?
     private let photoExporter = PhotoLibraryExporter()
     private var storageError: Error?
-    private let recordButton = UIButton(type: .system)
+    private let broadcastPicker = RPSystemBroadcastPickerView(frame: CGRect(x: 0, y: 0, width: 44, height: 44))
     private let recordingTimerLabel = UILabel()
     private var recordingTimer: Timer?
+    private var statusTimer: Timer?
     private var recordingStartDate: Date?
     private var isRecordingUI = false
+    private var isImporting = false
+    private var handledStatusIDs = Set<String>()
+    private var failedImportAt: [URL: Date] = [:]
 
-    override var prefersStatusBarHidden: Bool { isRecordingUI }
+    override var prefersStatusBarHidden: Bool { false }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,12 +29,31 @@ final class ChessCamViewController: UIViewController {
         do {
             let store = try RecordingFileStore()
             fileStore = store
-            recordingService = ScreenRecordingService(fileStore: store)
         } catch {
             storageError = error
         }
         configureNavigationBar()
         buildContent()
+        statusTimer = Timer.scheduledTimer(
+            timeInterval: 1,
+            target: self,
+            selector: #selector(pollBroadcastStatus),
+            userInfo: nil,
+            repeats: true
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(pollBroadcastStatus),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        pollBroadcastStatus()
+    }
+
+    deinit {
+        statusTimer?.invalidate()
+        recordingTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
     }
 }
 
@@ -42,13 +65,18 @@ private extension ChessCamViewController {
         navigationItem.leftBarButtonItem?.tintColor = green
         navigationItem.backButtonDisplayMode = .minimal
         navigationController?.navigationBar.tintColor = green
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        let settingsButton = UIBarButtonItem(
             image: UIImage(systemName: "gearshape"),
             style: .plain,
             target: self,
             action: #selector(openSettings)
         )
-        navigationItem.rightBarButtonItem?.tintColor = green
+        settingsButton.tintColor = green
+        broadcastPicker.preferredExtension = "miromanovsky.ChessCam.BroadcastUpload"
+        broadcastPicker.showsMicrophoneButton = true
+        broadcastPicker.tintColor = green
+        broadcastPicker.accessibilityLabel = "Начать или остановить запись"
+        navigationItem.rightBarButtonItems = [settingsButton, UIBarButtonItem(customView: broadcastPicker)]
 
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -83,15 +111,6 @@ private extension ChessCamViewController {
             webHeightConstraint
         ])
 
-        recordButton.setTitle("●  Начать запись", for: .normal)
-        recordButton.setTitleColor(.white, for: .normal)
-        recordButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        recordButton.backgroundColor = UIColor(red: 0.91, green: 0.18, blue: 0.18, alpha: 1)
-        recordButton.layer.cornerRadius = 27
-        recordButton.addTarget(self, action: #selector(startRecording), for: .touchUpInside)
-        recordButton.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(recordButton)
-
         recordingTimerLabel.font = .monospacedDigitSystemFont(ofSize: 19, weight: .semibold)
         recordingTimerLabel.textColor = .white
         recordingTimerLabel.backgroundColor = UIColor.black.withAlphaComponent(0.65)
@@ -102,15 +121,7 @@ private extension ChessCamViewController {
         recordingTimerLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(recordingTimerLabel)
 
-        let stopGesture = UITapGestureRecognizer(target: self, action: #selector(stopRecording))
-        stopGesture.numberOfTapsRequired = 2
-        cameraContentView.addGestureRecognizer(stopGesture)
-
         NSLayoutConstraint.activate([
-            recordButton.centerXAnchor.constraint(equalTo: cameraContentView.centerXAnchor),
-            recordButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-            recordButton.widthAnchor.constraint(equalToConstant: 220),
-            recordButton.heightAnchor.constraint(equalToConstant: 54),
             recordingTimerLabel.topAnchor.constraint(equalTo: cameraContentView.topAnchor, constant: 12),
             recordingTimerLabel.trailingAnchor.constraint(equalTo: cameraContentView.trailingAnchor, constant: -12),
             recordingTimerLabel.widthAnchor.constraint(equalToConstant: 86),
@@ -122,7 +133,7 @@ private extension ChessCamViewController {
 
     @objc func openRecordings() {
         guard let fileStore else {
-            showError(storageError ?? ScreenRecordingService.RecordingError.unavailable)
+            showError(storageError ?? RecordingFileStore.StoreError.invalidBroadcastFile)
             return
         }
         navigationController?.pushViewController(RecordingsViewController(fileStore: fileStore), animated: true)
@@ -153,52 +164,77 @@ private extension ChessCamViewController {
         }
     }
 
-    @objc func startRecording() {
-        guard let recordingService else {
-            showError(storageError ?? ScreenRecordingService.RecordingError.unavailable)
-            return
-        }
-        recordButton.isEnabled = false
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.recordButton.isEnabled = true }
-            do {
-                try await recordingService.start()
-                self.enterRecordingMode()
-            } catch {
-                self.showError(error)
+    @objc func pollBroadcastStatus() {
+        let status = BroadcastRecordingStatus.load()
+        if let status, status.isActive {
+            if (status.phase == .recording || status.phase == .finishing), status.startedAt > 0 {
+                let startedAt = Date(timeIntervalSince1970: status.startedAt)
+                if !isRecordingUI { enterRecordingMode(startedAt: startedAt) }
             }
+        } else if isRecordingUI {
+            leaveRecordingMode()
         }
-    }
 
-    @objc func stopRecording() {
-        guard let recordingService, recordingService.state == .recording else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let recording = try await recordingService.stop()
-                self.leaveRecordingMode()
-                if self.settings.saveToPhotos {
-                    do {
-                        try await self.photoExporter.saveVideo(at: recording.url)
-                        self.showMessage("Видео сохранено в ChessCam и Фото")
-                    } catch {
-                        self.showMessage("Видео сохранено в ChessCam. Не удалось добавить его в Фото: \(error.localizedDescription)")
-                    }
-                } else {
-                    self.showMessage("Видео сохранено в ChessCam")
+        if let status, !status.isActive, !handledStatusIDs.contains(status.id) {
+            switch status.phase {
+            case .failed:
+                handledStatusIDs.insert(status.id)
+                showMessage(status.message ?? "Запись не удалась.")
+            case .finished:
+                // The ready file is imported below; report completion afterwards.
+                break
+            case .starting, .recording, .finishing:
+                if Date().timeIntervalSince1970 - status.updatedAt > 5 {
+                    handledStatusIDs.insert(status.id)
+                    showMessage("Трансляция прервалась до завершения записи.")
                 }
-            } catch {
-                if recordingService.state == .idle { self.leaveRecordingMode() }
-                self.showError(error)
+            }
+        }
+        importFinishedBroadcasts()
+    }
+
+    func importFinishedBroadcasts() {
+        guard !isImporting, let fileStore else { return }
+        guard let ready = try? fileStore.readyBroadcastURLs() else { return }
+        let due = ready.filter { url in
+            guard let failedAt = failedImportAt[url] else { return true }
+            return Date().timeIntervalSince(failedAt) > 30
+        }
+        guard !due.isEmpty else { return }
+        isImporting = true
+        broadcastPicker.isUserInteractionEnabled = false
+        Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.isImporting = false
+                self.broadcastPicker.isUserInteractionEnabled = true
+            }
+            for url in due {
+                do {
+                    let recording = try await fileStore.importBroadcastRecording(at: url)
+                    self.handledStatusIDs.insert(recording.id.uuidString)
+                    if self.settings.saveToPhotos {
+                        do {
+                            try await self.photoExporter.saveVideo(at: recording.url)
+                            self.showMessage("Видео сохранено в ChessCam и Фото")
+                        } catch {
+                            self.showMessage("Видео сохранено в ChessCam. Не удалось добавить его в Фото: \(error.localizedDescription)")
+                        }
+                    } else {
+                        self.showMessage("Видео сохранено в ChessCam")
+                    }
+                } catch {
+                    self.failedImportAt[url] = Date()
+                    self.showError(error)
+                    break
+                }
             }
         }
     }
 
-    func enterRecordingMode() {
+    func enterRecordingMode(startedAt: Date) {
         isRecordingUI = true
-        recordButton.isHidden = true
-        recordingStartDate = Date()
+        recordingStartDate = startedAt
         recordingTimerLabel.isHidden = false
         updateRecordingTimer()
         recordingTimer = Timer.scheduledTimer(
@@ -209,8 +245,6 @@ private extension ChessCamViewController {
             repeats: true
         )
         UIApplication.shared.isIdleTimerDisabled = true
-        navigationController?.setNavigationBarHidden(true, animated: false)
-        setNeedsStatusBarAppearanceUpdate()
     }
 
     func leaveRecordingMode() {
@@ -219,10 +253,7 @@ private extension ChessCamViewController {
         recordingTimer = nil
         recordingStartDate = nil
         recordingTimerLabel.isHidden = true
-        recordButton.isHidden = false
         UIApplication.shared.isIdleTimerDisabled = false
-        navigationController?.setNavigationBarHidden(false, animated: false)
-        setNeedsStatusBarAppearanceUpdate()
     }
 
     @objc func updateRecordingTimer() {

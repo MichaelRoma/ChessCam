@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 struct StoredRecordingFile {
@@ -8,10 +9,25 @@ struct StoredRecordingFile {
 }
 
 final class RecordingFileStore {
-    enum StoreError: Error {
+    enum StoreError: LocalizedError {
         case invalidPendingFile
         case emptyFile
         case recordingAlreadyExists
+        case invalidBroadcastFile
+        case exportFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidPendingFile, .invalidBroadcastFile:
+                return "Файл записи повреждён или недоступен."
+            case .emptyFile:
+                return "Запись получилась пустой."
+            case .recordingAlreadyExists:
+                return "Эта запись уже сохранена."
+            case .exportFailed:
+                return "Не удалось объединить звук сайта и микрофона."
+            }
+        }
     }
 
     private let fileManager: FileManager
@@ -59,6 +75,58 @@ final class RecordingFileStore {
         return try fileInfo(at: destination, id: id)
     }
 
+    /// Imports a finalized broadcast movie from the shared App Group. Broadcasts
+    /// contain separate app and microphone tracks; export renders them together.
+    func importBroadcastRecording(at sourceURL: URL) async throws -> StoredRecordingFile {
+        guard let groupURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.miromanovsky.ChessCam"
+        ) else { throw StoreError.invalidBroadcastFile }
+        let readyDirectory = groupURL.appendingPathComponent("Recordings/ready", isDirectory: true)
+        let source = sourceURL.standardizedFileURL
+        guard source.deletingLastPathComponent() == readyDirectory.standardizedFileURL,
+              source.pathExtension.lowercased() == "mov",
+              let id = UUID(uuidString: source.deletingPathExtension().lastPathComponent) else {
+            throw StoreError.invalidBroadcastFile
+        }
+
+        let destination = recordingURL(for: id)
+        if fileManager.fileExists(atPath: destination.path) {
+            try fileManager.removeItem(at: source)
+            return try fileInfo(at: destination, id: id)
+        }
+
+        let pending = pendingDirectory.appendingPathComponent(id.uuidString).appendingPathExtension("mov")
+        if fileManager.fileExists(atPath: pending.path) {
+            try fileManager.removeItem(at: pending)
+        }
+
+        do {
+            let asset = AVURLAsset(url: source)
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            if audioTracks.count > 1 {
+                try await mixBroadcastTracks(asset: asset, audioTracks: audioTracks, outputURL: pending)
+            } else {
+                try fileManager.copyItem(at: source, to: pending)
+            }
+            let recording = try finishRecording(at: pending)
+            try fileManager.removeItem(at: source)
+            return recording
+        } catch {
+            try? fileManager.removeItem(at: pending)
+            throw error
+        }
+    }
+
+    func readyBroadcastURLs() throws -> [URL] {
+        guard let groupURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.miromanovsky.ChessCam"
+        ) else { throw StoreError.invalidBroadcastFile }
+        let readyDirectory = groupURL.appendingPathComponent("Recordings/ready", isDirectory: true)
+        try fileManager.createDirectory(at: readyDirectory, withIntermediateDirectories: true)
+        return try fileManager.contentsOfDirectory(at: readyDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension.lowercased() == "mov" }
+    }
+
     /// Returns finished recordings only; incomplete files in .pending are omitted.
     func recordings() throws -> [StoredRecordingFile] {
         let urls = try fileManager.contentsOfDirectory(
@@ -103,5 +171,44 @@ final class RecordingFileStore {
             createdAt: values.creationDate ?? .distantPast,
             sizeInBytes: Int64(values.fileSize ?? 0)
         )
+    }
+
+    private func mixBroadcastTracks(
+        asset: AVURLAsset,
+        audioTracks: [AVAssetTrack],
+        outputURL: URL
+    ) async throws {
+        let composition = AVMutableComposition()
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        guard let sourceVideo = videoTracks.first,
+              let video = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+              ) else { throw StoreError.invalidBroadcastFile }
+
+        let videoRange = try await sourceVideo.load(.timeRange)
+        try video.insertTimeRange(videoRange, of: sourceVideo, at: videoRange.start)
+        video.preferredTransform = try await sourceVideo.load(.preferredTransform)
+
+        let audioMix = AVMutableAudioMix()
+        var parameters: [AVMutableAudioMixInputParameters] = []
+        for sourceAudio in audioTracks {
+            guard let track = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else { throw StoreError.exportFailed }
+            let range = try await sourceAudio.load(.timeRange)
+            try track.insertTimeRange(range, of: sourceAudio, at: range.start)
+            let parameter = AVMutableAudioMixInputParameters(track: track)
+            parameter.setVolume(1, at: .zero)
+            parameters.append(parameter)
+        }
+        audioMix.inputParameters = parameters
+
+        guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+            throw StoreError.exportFailed
+        }
+        exporter.audioMix = audioMix
+        try await exporter.export(to: outputURL, as: .mov)
     }
 }

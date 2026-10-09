@@ -6,8 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D3D6272B307759DF00A643C3 /* BroadcastUpload.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D3D62720307759DF00A643C3 /* BroadcastUpload.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D3D6272C307759DF00A643C3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D3D626FC307759DD00A643C3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D3D62723307759DF00A643C3;
+			remoteInfo = BroadcastUpload;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D3D6272A307759DF00A643C3 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D3D6272B307759DF00A643C3 /* BroadcastUpload.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		D3D62704307759DD00A643C3 /* ChessCam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChessCam.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D3D62720307759DF00A643C3 /* BroadcastUpload.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BroadcastUpload.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -17,6 +46,13 @@
 				Info.plist,
 			);
 			target = D3D62703307759DD00A643C3 /* ChessCam */;
+		};
+		D3D62722307759DF00A643C3 /* Exceptions for "BroadcastUpload" folder in "BroadcastUpload" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D3D62723307759DF00A643C3 /* BroadcastUpload */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -29,10 +65,25 @@
 			path = ChessCam;
 			sourceTree = "<group>";
 		};
+		D3D62721307759DF00A643C3 /* BroadcastUpload */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D3D62722307759DF00A643C3 /* Exceptions for "BroadcastUpload" folder in "BroadcastUpload" target */,
+			);
+			path = BroadcastUpload;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		D3D62701307759DD00A643C3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D3D62725307759DF00A643C3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +97,7 @@
 			isa = PBXGroup;
 			children = (
 				D3D62706307759DD00A643C3 /* ChessCam */,
+				D3D62721307759DF00A643C3 /* BroadcastUpload */,
 				D3D62705307759DD00A643C3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +106,7 @@
 			isa = PBXGroup;
 			children = (
 				D3D62704307759DD00A643C3 /* ChessCam.app */,
+				D3D62720307759DF00A643C3 /* BroadcastUpload.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -68,10 +121,12 @@
 				D3D62700307759DD00A643C3 /* Sources */,
 				D3D62701307759DD00A643C3 /* Frameworks */,
 				D3D62702307759DD00A643C3 /* Resources */,
+				D3D6272A307759DF00A643C3 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D3D6272D307759DF00A643C3 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D3D62706307759DD00A643C3 /* ChessCam */,
@@ -82,6 +137,28 @@
 			productName = ChessCam;
 			productReference = D3D62704307759DD00A643C3 /* ChessCam.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D3D62723307759DF00A643C3 /* BroadcastUpload */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D3D62727307759DF00A643C3 /* Build configuration list for PBXNativeTarget "BroadcastUpload" */;
+			buildPhases = (
+				D3D62724307759DF00A643C3 /* Sources */,
+				D3D62725307759DF00A643C3 /* Frameworks */,
+				D3D62726307759DF00A643C3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D3D62721307759DF00A643C3 /* BroadcastUpload */,
+			);
+			name = BroadcastUpload;
+			packageProductDependencies = (
+			);
+			productName = BroadcastUpload;
+			productReference = D3D62720307759DF00A643C3 /* BroadcastUpload.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -94,6 +171,9 @@
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					D3D62703307759DD00A643C3 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					D3D62723307759DF00A643C3 = {
 						CreatedOnToolsVersion = 26.6;
 					};
 				};
@@ -113,12 +193,20 @@
 			projectRoot = "";
 			targets = (
 				D3D62703307759DD00A643C3 /* ChessCam */,
+				D3D62723307759DF00A643C3 /* BroadcastUpload */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		D3D62702307759DD00A643C3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D3D62726307759DF00A643C3 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,7 +223,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D3D62724307759DF00A643C3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D3D6272D307759DF00A643C3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D3D62723307759DF00A643C3 /* BroadcastUpload */;
+			targetProxy = D3D6272C307759DF00A643C3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		D3D62718307759DF00A643C3 /* Debug */ = {
@@ -143,6 +246,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/ChessCam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5W7D52XM5U;
@@ -178,6 +282,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/ChessCam.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 5W7D52XM5U;
@@ -329,6 +434,54 @@
 			};
 			name = Release;
 		};
+		D3D62728307759DF00A643C3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/BroadcastUpload.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5W7D52XM5U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BroadcastUpload/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = miromanovsky.ChessCam.BroadcastUpload;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D3D62729307759DF00A643C3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/BroadcastUpload.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5W7D52XM5U;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = BroadcastUpload/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = miromanovsky.ChessCam.BroadcastUpload;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -346,6 +499,15 @@
 			buildConfigurations = (
 				D3D62718307759DF00A643C3 /* Debug */,
 				D3D62719307759DF00A643C3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D3D62727307759DF00A643C3 /* Build configuration list for PBXNativeTarget "BroadcastUpload" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D3D62728307759DF00A643C3 /* Debug */,
+				D3D62729307759DF00A643C3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
