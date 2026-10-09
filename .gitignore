@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Xcode user settings and build output
+**/xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Local credentials
+*.p12
+*.mobileprovision
+*.cer
