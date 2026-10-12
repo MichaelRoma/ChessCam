@@ -10,13 +10,15 @@ final class ChessCamViewController: UIViewController {
     private var recordingService: ScreenRecordingService?
     private let photoExporter = PhotoLibraryExporter()
     private var storageError: Error?
-    private let recordButton = UIButton(type: .system)
+    private lazy var recordButton = UIBarButtonItem(
+        image: UIImage(systemName: "record.circle"),
+        style: .plain,
+        target: self,
+        action: #selector(toggleRecording)
+    )
     private let recordingTimerLabel = UILabel()
     private var recordingTimer: Timer?
     private var recordingStartDate: Date?
-    private var isRecordingUI = false
-
-    override var prefersStatusBarHidden: Bool { isRecordingUI }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -42,13 +44,15 @@ private extension ChessCamViewController {
         navigationItem.leftBarButtonItem?.tintColor = green
         navigationItem.backButtonDisplayMode = .minimal
         navigationController?.navigationBar.tintColor = green
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        let settingsButton = UIBarButtonItem(
             image: UIImage(systemName: "gearshape"),
             style: .plain,
             target: self,
             action: #selector(openSettings)
         )
-        navigationItem.rightBarButtonItem?.tintColor = green
+        settingsButton.tintColor = green
+        navigationItem.rightBarButtonItems = [recordButton, settingsButton]
+        updateRecordingButton(isRecording: false)
 
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
@@ -83,15 +87,6 @@ private extension ChessCamViewController {
             webHeightConstraint
         ])
 
-        recordButton.setTitle("●  Начать запись", for: .normal)
-        recordButton.setTitleColor(.white, for: .normal)
-        recordButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        recordButton.backgroundColor = UIColor(red: 0.91, green: 0.18, blue: 0.18, alpha: 1)
-        recordButton.layer.cornerRadius = 27
-        recordButton.addTarget(self, action: #selector(startRecording), for: .touchUpInside)
-        recordButton.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(recordButton)
-
         recordingTimerLabel.font = .monospacedDigitSystemFont(ofSize: 19, weight: .semibold)
         recordingTimerLabel.textColor = .white
         recordingTimerLabel.backgroundColor = UIColor.black.withAlphaComponent(0.65)
@@ -102,15 +97,7 @@ private extension ChessCamViewController {
         recordingTimerLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(recordingTimerLabel)
 
-        let stopGesture = UITapGestureRecognizer(target: self, action: #selector(stopRecording))
-        stopGesture.numberOfTapsRequired = 2
-        cameraContentView.addGestureRecognizer(stopGesture)
-
         NSLayoutConstraint.activate([
-            recordButton.centerXAnchor.constraint(equalTo: cameraContentView.centerXAnchor),
-            recordButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
-            recordButton.widthAnchor.constraint(equalToConstant: 220),
-            recordButton.heightAnchor.constraint(equalToConstant: 54),
             recordingTimerLabel.topAnchor.constraint(equalTo: cameraContentView.topAnchor, constant: 12),
             recordingTimerLabel.trailingAnchor.constraint(equalTo: cameraContentView.trailingAnchor, constant: -12),
             recordingTimerLabel.widthAnchor.constraint(equalToConstant: 86),
@@ -153,7 +140,22 @@ private extension ChessCamViewController {
         }
     }
 
-    @objc func startRecording() {
+    @objc func toggleRecording() {
+        guard let recordingService else {
+            showError(storageError ?? ScreenRecordingService.RecordingError.unavailable)
+            return
+        }
+        switch recordingService.state {
+        case .idle:
+            startRecording()
+        case .recording:
+            stopRecording()
+        case .starting, .stopping:
+            break
+        }
+    }
+
+    func startRecording() {
         guard let recordingService else {
             showError(storageError ?? ScreenRecordingService.RecordingError.unavailable)
             return
@@ -171,10 +173,12 @@ private extension ChessCamViewController {
         }
     }
 
-    @objc func stopRecording() {
+    func stopRecording() {
         guard let recordingService, recordingService.state == .recording else { return }
+        recordButton.isEnabled = false
         Task { [weak self] in
             guard let self else { return }
+            defer { self.recordButton.isEnabled = true }
             do {
                 let recording = try await recordingService.stop()
                 self.leaveRecordingMode()
@@ -196,8 +200,7 @@ private extension ChessCamViewController {
     }
 
     func enterRecordingMode() {
-        isRecordingUI = true
-        recordButton.isHidden = true
+        updateRecordingButton(isRecording: true)
         recordingStartDate = Date()
         recordingTimerLabel.isHidden = false
         updateRecordingTimer()
@@ -209,20 +212,21 @@ private extension ChessCamViewController {
             repeats: true
         )
         UIApplication.shared.isIdleTimerDisabled = true
-        navigationController?.setNavigationBarHidden(true, animated: false)
-        setNeedsStatusBarAppearanceUpdate()
     }
 
     func leaveRecordingMode() {
-        isRecordingUI = false
         recordingTimer?.invalidate()
         recordingTimer = nil
         recordingStartDate = nil
         recordingTimerLabel.isHidden = true
-        recordButton.isHidden = false
+        updateRecordingButton(isRecording: false)
         UIApplication.shared.isIdleTimerDisabled = false
-        navigationController?.setNavigationBarHidden(false, animated: false)
-        setNeedsStatusBarAppearanceUpdate()
+    }
+
+    func updateRecordingButton(isRecording: Bool) {
+        recordButton.image = UIImage(systemName: isRecording ? "stop.circle.fill" : "record.circle")
+        recordButton.tintColor = UIColor(red: 0.91, green: 0.18, blue: 0.18, alpha: 1)
+        recordButton.accessibilityLabel = isRecording ? "Остановить запись" : "Начать запись"
     }
 
     @objc func updateRecordingTimer() {
