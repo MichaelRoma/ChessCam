@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 struct StoredRecordingFile {
@@ -7,7 +8,15 @@ struct StoredRecordingFile {
     let sizeInBytes: Int64
 }
 
+@MainActor
 final class RecordingFileStore {
+    static let didSaveRecording = Notification.Name("RecordingFileStore.didSaveRecording")
+
+    enum RecordingFormat: String, CaseIterable {
+        case mov
+        case mp4
+    }
+
     enum StoreError: Error {
         case invalidPendingFile
         case emptyFile
@@ -17,6 +26,7 @@ final class RecordingFileStore {
     private let fileManager: FileManager
     private let recordingsDirectory: URL
     private let pendingDirectory: URL
+    private var activePendingURLs = Set<URL>()
 
     init(fileManager: FileManager = .default) throws {
         self.fileManager = fileManager
@@ -33,17 +43,19 @@ final class RecordingFileStore {
         try fileManager.createDirectory(at: pendingDirectory, withIntermediateDirectories: true)
     }
 
-    /// Pass this URL to the recorder as the destination for a new .mov file.
-    func makePendingURL() -> URL {
-        pendingDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+    /// Pass this URL to the recorder as the destination for a new recording.
+    func makePendingURL(format: RecordingFormat = .mov) -> URL {
+        let url = pendingDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(format.rawValue)
+        activePendingURLs.insert(url.standardizedFileURL)
+        return url
     }
 
     /// Moves a completed recording into the permanent library. The source remains
     /// in .pending if validation or the move fails.
-    func finishRecording(at pendingURL: URL) throws -> StoredRecordingFile {
+    func finishRecording(at pendingURL: URL, notify: Bool = true) throws -> StoredRecordingFile {
         let source = pendingURL.standardizedFileURL
         guard source.deletingLastPathComponent() == pendingDirectory.standardizedFileURL,
-              source.pathExtension.lowercased() == "mov",
+              let format = RecordingFormat(rawValue: source.pathExtension.lowercased()),
               let id = UUID(uuidString: source.deletingPathExtension().lastPathComponent),
               let values = try? source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
               values.isRegularFile == true else {
@@ -51,12 +63,47 @@ final class RecordingFileStore {
         }
         guard (values.fileSize ?? 0) > 0 else { throw StoreError.emptyFile }
 
-        let destination = recordingURL(for: id)
-        guard !fileManager.fileExists(atPath: destination.path) else {
+        let destination = recordingURL(for: id, format: format)
+        guard !RecordingFormat.allCases.contains(where: {
+            fileManager.fileExists(atPath: recordingURL(for: id, format: $0).path)
+        }) else {
             throw StoreError.recordingAlreadyExists
         }
         try fileManager.moveItem(at: source, to: destination)
-        return try fileInfo(at: destination, id: id)
+        activePendingURLs.remove(source)
+        let recording = try fileInfo(at: destination, id: id)
+        if notify { NotificationCenter.default.post(name: Self.didSaveRecording, object: self) }
+        return recording
+    }
+
+    /// Revisit files left by an interrupted capture after their container is readable.
+    func recoverPendingRecordings() async throws -> [StoredRecordingFile] {
+        let urls = try fileManager.contentsOfDirectory(
+            at: pendingDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        var recovered: [StoredRecordingFile] = []
+        for url in urls {
+            guard !Task.isCancelled else { break }
+            guard !activePendingURLs.contains(url.standardizedFileURL),
+                  RecordingFormat(rawValue: url.pathExtension.lowercased()) != nil,
+                  UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil else { continue }
+            let asset = AVURLAsset(url: url)
+            guard let playable = try? await asset.load(.isPlayable), playable,
+                  let duration = try? await asset.load(.duration),
+                  CMTimeGetSeconds(duration).isFinite,
+                  CMTimeGetSeconds(duration) > 0 else { continue }
+            guard !Task.isCancelled else { break }
+            if let file = try? finishRecording(at: url, notify: false) {
+                recovered.append(file)
+            }
+        }
+        return recovered
+    }
+
+    func releasePendingRecording(at pendingURL: URL) {
+        activePendingURLs.remove(pendingURL.standardizedFileURL)
     }
 
     /// Returns finished recordings only; incomplete files in .pending are omitted.
@@ -67,7 +114,7 @@ final class RecordingFileStore {
             options: [.skipsHiddenFiles]
         )
         return try urls.compactMap { url in
-            guard url.pathExtension.lowercased() == "mov",
+            guard RecordingFormat(rawValue: url.pathExtension.lowercased()) != nil,
                   let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else {
                 return nil
             }
@@ -77,21 +124,26 @@ final class RecordingFileStore {
     }
 
     func deleteRecording(id: UUID) throws {
-        try fileManager.removeItem(at: recordingURL(for: id))
+        let urls = RecordingFormat.allCases.map { recordingURL(for: id, format: $0) }
+        let existingURLs = urls.filter { fileManager.fileExists(atPath: $0.path) }
+        for url in existingURLs.isEmpty ? [urls[0]] : existingURLs {
+            try fileManager.removeItem(at: url)
+        }
     }
 
     func discardPendingRecording(at pendingURL: URL) throws {
         let source = pendingURL.standardizedFileURL
         guard source.deletingLastPathComponent() == pendingDirectory.standardizedFileURL,
-              source.pathExtension.lowercased() == "mov",
+              RecordingFormat(rawValue: source.pathExtension.lowercased()) != nil,
               UUID(uuidString: source.deletingPathExtension().lastPathComponent) != nil else {
             throw StoreError.invalidPendingFile
         }
         try fileManager.removeItem(at: source)
+        activePendingURLs.remove(source)
     }
 
-    private func recordingURL(for id: UUID) -> URL {
-        recordingsDirectory.appendingPathComponent(id.uuidString).appendingPathExtension("mov")
+    private func recordingURL(for id: UUID, format: RecordingFormat) -> URL {
+        recordingsDirectory.appendingPathComponent(id.uuidString).appendingPathExtension(format.rawValue)
     }
 
     private func fileInfo(at url: URL, id: UUID) throws -> StoredRecordingFile {

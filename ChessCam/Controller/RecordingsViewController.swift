@@ -18,6 +18,7 @@ final class RecordingsViewController: UIViewController {
     private let emptyLabel = UILabel()
     private var dataSource: UICollectionViewDiffableDataSource<Section, Recording>!
     private var metadataTask: Task<Void, Never>?
+    private var recoveryTask: Task<Void, Never>?
 
     init(fileStore: RecordingFileStore) {
         self.fileStore = fileStore
@@ -25,6 +26,8 @@ final class RecordingsViewController: UIViewController {
     }
 
     required init?(coder: NSCoder) { fatalError("Programmatic UI") }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -51,6 +54,12 @@ final class RecordingsViewController: UIViewController {
             emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
         configureDataSource()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(recordingWasSaved),
+            name: RecordingFileStore.didSaveRecording,
+            object: fileStore
+        )
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -88,6 +97,28 @@ final class RecordingsViewController: UIViewController {
     }
 
     private func loadRecordings() {
+        recoveryTask?.cancel()
+        showStoredRecordings()
+        recoveryTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let recovered = try await fileStore.recoverPendingRecordings()
+                guard !Task.isCancelled else { return }
+                if !recovered.isEmpty { showStoredRecordings() }
+            } catch {
+                guard !Task.isCancelled else { return }
+                let alert = UIAlertController(title: "Не удалось восстановить записи", message: error.localizedDescription, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    @objc private func recordingWasSaved(_ notification: Notification) {
+        if viewIfLoaded?.window != nil { loadRecordings() }
+    }
+
+    private func showStoredRecordings() {
         metadataTask?.cancel()
         do {
             let files = try fileStore.recordings()

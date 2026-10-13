@@ -16,6 +16,7 @@ final class ChessCamViewController: UIViewController {
         target: self,
         action: #selector(toggleRecording)
     )
+    private let fitBoardButton = UIButton(type: .system)
     private let recordingTimerLabel = UILabel()
     private var recordingTimer: Timer?
     private var recordingStartDate: Date?
@@ -27,11 +28,29 @@ final class ChessCamViewController: UIViewController {
         do {
             let store = try RecordingFileStore()
             fileStore = store
-            recordingService = ScreenRecordingService(fileStore: store)
+            let service = ScreenRecordingService(fileStore: store)
+            service.onInterruption = { [weak self] error in
+                self?.recordButton.isEnabled = true
+                self?.leaveRecordingMode()
+                self?.showError(error)
+            }
+            service.onExternalFinishStarted = { [weak self] in
+                self?.recordButton.isEnabled = false
+            }
+            service.onExternalCompletion = { [weak self] recording in
+                guard let self else { return }
+                self.recordButton.isEnabled = true
+                self.leaveRecordingMode()
+                Task { await self.showSavedRecording(recording) }
+            }
+            recordingService = service
         } catch {
             storageError = error
         }
         configureNavigationBar()
+        chessWebController.onBoardFramingChanged = { [weak self] isFramed in
+            self?.updateFitBoardButton(isFramed: isFramed)
+        }
         buildContent()
     }
 }
@@ -67,8 +86,20 @@ private extension ChessCamViewController {
         addChild(cameraController)
         let webContentView = chessWebController.view!
         let cameraContentView = cameraController.view!
+        let boardControls = UIView()
+        boardControls.backgroundColor = .systemBackground
 
-        let content = UIStackView(arrangedSubviews: [webContentView, cameraContentView])
+        var buttonConfiguration = UIButton.Configuration.tinted()
+        buttonConfiguration.title = "Подогнать доску"
+        buttonConfiguration.cornerStyle = .capsule
+        buttonConfiguration.baseForegroundColor = green
+        fitBoardButton.configuration = buttonConfiguration
+        fitBoardButton.accessibilityLabel = "Подогнать доску"
+        fitBoardButton.addTarget(self, action: #selector(toggleBoardFraming), for: .touchUpInside)
+        fitBoardButton.translatesAutoresizingMaskIntoConstraints = false
+        boardControls.addSubview(fitBoardButton)
+
+        let content = UIStackView(arrangedSubviews: [webContentView, boardControls, cameraContentView])
         content.axis = .vertical
         content.spacing = 0
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -84,6 +115,9 @@ private extension ChessCamViewController {
             content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             content.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            boardControls.heightAnchor.constraint(equalToConstant: 44),
+            fitBoardButton.centerXAnchor.constraint(equalTo: boardControls.centerXAnchor),
+            fitBoardButton.centerYAnchor.constraint(equalTo: boardControls.centerYAnchor),
             webHeightConstraint
         ])
 
@@ -131,6 +165,7 @@ private extension ChessCamViewController {
         if siteChanged { chessWebController.show(settings.site) }
         cameraController.setMirrored(settings.mirrorCamera)
         if fractionChanged {
+            chessWebController.resetBoardFraming()
             webHeightConstraint.isActive = false
             webHeightConstraint = chessWebController.view.heightAnchor.constraint(
                 equalTo: cameraController.view.heightAnchor,
@@ -138,6 +173,29 @@ private extension ChessCamViewController {
             )
             webHeightConstraint.isActive = true
         }
+    }
+
+    @objc func toggleBoardFraming() {
+        fitBoardButton.isEnabled = false
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.fitBoardButton.isEnabled = true }
+            do {
+                _ = try await self.chessWebController.toggleBoardFraming()
+            } catch ChessBoardFramer.FramingError.pageChanged {
+                // Navigation already restored the view and updated the button.
+            } catch {
+                self.showError(error)
+            }
+        }
+    }
+
+    func updateFitBoardButton(isFramed: Bool) {
+        let title = isFramed ? "Вернуть вид" : "Подогнать доску"
+        var configuration = fitBoardButton.configuration
+        configuration?.title = title
+        fitBoardButton.configuration = configuration
+        fitBoardButton.accessibilityLabel = title
     }
 
     @objc func toggleRecording() {
@@ -167,6 +225,8 @@ private extension ChessCamViewController {
             do {
                 try await recordingService.start()
                 self.enterRecordingMode()
+            } catch is CancellationError {
+                // The user closed the system screen-sharing picker.
             } catch {
                 self.showError(error)
             }
@@ -182,20 +242,24 @@ private extension ChessCamViewController {
             do {
                 let recording = try await recordingService.stop()
                 self.leaveRecordingMode()
-                if self.settings.saveToPhotos {
-                    do {
-                        try await self.photoExporter.saveVideo(at: recording.url)
-                        self.showMessage("Видео сохранено в ChessCam и Фото")
-                    } catch {
-                        self.showMessage("Видео сохранено в ChessCam. Не удалось добавить его в Фото: \(error.localizedDescription)")
-                    }
-                } else {
-                    self.showMessage("Видео сохранено в ChessCam")
-                }
+                await self.showSavedRecording(recording)
             } catch {
                 if recordingService.state == .idle { self.leaveRecordingMode() }
                 self.showError(error)
             }
+        }
+    }
+
+    func showSavedRecording(_ recording: StoredRecordingFile) async {
+        if settings.saveToPhotos {
+            do {
+                try await photoExporter.saveVideo(at: recording.url)
+                showMessage("Видео сохранено в ChessCam и Фото")
+            } catch {
+                showMessage("Видео сохранено в ChessCam. Не удалось добавить его в Фото: \(error.localizedDescription)")
+            }
+        } else {
+            showMessage("Видео сохранено в ChessCam")
         }
     }
 
@@ -238,12 +302,12 @@ private extension ChessCamViewController {
     func showError(_ error: Error) {
         let alert = UIAlertController(title: "Ошибка", message: error.localizedDescription, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+        (navigationController?.topViewController ?? self).present(alert, animated: true)
     }
 
     func showMessage(_ message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
+        (navigationController?.topViewController ?? self).present(alert, animated: true)
     }
 }
