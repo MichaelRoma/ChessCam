@@ -1,3 +1,4 @@
+import Combine
 import UIKit
 
 final class ChessCamViewController: UIViewController {
@@ -6,6 +7,8 @@ final class ChessCamViewController: UIViewController {
     private lazy var chessWebController = ChessWebViewController(site: settings.site)
     private lazy var cameraController = CameraViewController(mirrored: settings.mirrorCamera)
     private var webHeightConstraint: NSLayoutConstraint!
+    private var squareWebHeightConstraint: NSLayoutConstraint!
+    private var boardModeSubscription: AnyCancellable?
     private var fileStore: RecordingFileStore?
     private var recordingService: ScreenRecordingService?
     private let photoExporter = PhotoLibraryExporter()
@@ -48,9 +51,12 @@ final class ChessCamViewController: UIViewController {
             storageError = error
         }
         configureNavigationBar()
-        chessWebController.onBoardFramingChanged = { [weak self] isFramed in
-            self?.updateFitBoardButton(isFramed: isFramed)
-        }
+        boardModeSubscription = chessWebController.boardBridge.$boardMode
+            .removeDuplicates()
+            .sink { [weak self] isFramed in
+                self?.updateFitBoardButton(isFramed: isFramed)
+                self?.updateBoardLayout(isFramed: isFramed)
+            }
         buildContent()
     }
 }
@@ -109,6 +115,7 @@ private extension ChessCamViewController {
             equalTo: cameraContentView.heightAnchor,
             multiplier: CGFloat(settings.boardFraction / (1 - settings.boardFraction))
         )
+        squareWebHeightConstraint = webContentView.heightAnchor.constraint(equalTo: content.widthAnchor)
 
         NSLayoutConstraint.activate([
             content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -165,29 +172,42 @@ private extension ChessCamViewController {
         if siteChanged { chessWebController.show(settings.site) }
         cameraController.setMirrored(settings.mirrorCamera)
         if fractionChanged {
-            chessWebController.resetBoardFraming()
+            let wasActive = webHeightConstraint.isActive
             webHeightConstraint.isActive = false
             webHeightConstraint = chessWebController.view.heightAnchor.constraint(
                 equalTo: cameraController.view.heightAnchor,
                 multiplier: CGFloat(settings.boardFraction / (1 - settings.boardFraction))
             )
-            webHeightConstraint.isActive = true
+            webHeightConstraint.isActive = wasActive
+            if wasActive {
+                view.layoutIfNeeded()
+                chessWebController.boardBridge.refit()
+            }
         }
     }
 
     @objc func toggleBoardFraming() {
-        fitBoardButton.isEnabled = false
-        Task { [weak self] in
-            guard let self else { return }
-            defer { self.fitBoardButton.isEnabled = true }
-            do {
-                _ = try await self.chessWebController.toggleBoardFraming()
-            } catch ChessBoardFramer.FramingError.pageChanged {
-                // Navigation already restored the view and updated the button.
-            } catch {
-                self.showError(error)
-            }
+        let bridge = chessWebController.boardBridge
+        guard bridge.boardFound else {
+            showMessage("Доска не найдена. Откройте партию или анализ и попробуйте ещё раз.")
+            return
         }
+        bridge.toggleBoardMode()
+    }
+
+    func updateBoardLayout(isFramed: Bool) {
+        guard webHeightConstraint != nil,
+              squareWebHeightConstraint != nil,
+              squareWebHeightConstraint.isActive != isFramed else { return }
+        webHeightConstraint.isActive = false
+        squareWebHeightConstraint.isActive = false
+        if isFramed {
+            squareWebHeightConstraint.isActive = true
+        } else {
+            webHeightConstraint.isActive = true
+        }
+        view.layoutIfNeeded()
+        if isFramed { chessWebController.boardBridge.refit() }
     }
 
     func updateFitBoardButton(isFramed: Bool) {

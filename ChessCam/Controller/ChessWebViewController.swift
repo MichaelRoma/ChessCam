@@ -2,16 +2,16 @@ import UIKit
 import WebKit
 
 final class ChessWebViewController: UIViewController {
-    private let webView: WKWebView = {
+    let boardBridge = ChessBoardBridge()
+    private lazy var webView: WKWebView = {
         let configuration = WKWebViewConfiguration()
-        configuration.ignoresViewportScaleLimits = true
-        return WKWebView(frame: .zero, configuration: configuration)
+        boardBridge.install(into: configuration)
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        boardBridge.attach(webView)
+        return webView
     }()
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
-    private lazy var boardFramer = ChessBoardFramer(webView: webView)
-    private var urlObservation: NSKeyValueObservation?
     private var site: ChessSite
-    var onBoardFramingChanged: ((Bool) -> Void)?
 
     init(site: ChessSite) {
         self.site = site
@@ -36,36 +36,14 @@ final class ChessWebViewController: UIViewController {
             activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
         webView.navigationDelegate = self
-        urlObservation = webView.observe(\.url, options: [.old, .new]) { [weak self] _, change in
-            guard change.oldValue != change.newValue else { return }
-            Task { @MainActor [weak self] in
-                self?.resetBoardFraming()
-            }
-        }
         loadSite()
     }
 
     func show(_ site: ChessSite) {
         guard self.site != site else { return }
-        resetBoardFraming()
+        boardBridge.clearState()
         self.site = site
         if isViewLoaded { loadSite() }
-    }
-
-    func toggleBoardFraming() async throws -> Bool {
-        if boardFramer.isFramed {
-            resetBoardFraming()
-        } else {
-            try await boardFramer.frameBoard()
-            onBoardFramingChanged?(true)
-        }
-        return boardFramer.isFramed
-    }
-
-    func resetBoardFraming() {
-        let wasFramed = boardFramer.isFramed
-        boardFramer.restore()
-        if wasFramed { onBoardFramingChanged?(false) }
     }
 
     private func loadSite() {
@@ -95,7 +73,7 @@ final class ChessWebViewController: UIViewController {
 
 extension ChessWebViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        resetBoardFraming()
+        boardBridge.clearState()
         activityIndicator.startAnimating()
     }
 
